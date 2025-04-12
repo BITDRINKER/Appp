@@ -1,108 +1,75 @@
 const express = require('express');
 const cors = require('cors');
-const mongoose = require('mongoose');
-const bodyParser = require('body-parser');
 
 const app = express();
-app.use(cors());
-app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json());
+app.use(cors({ optionsSuccessStatus: 200 }));
 
-// Connect to MongoDB
-mongoose.connect('mongodb://127.0.0.1:27017/exercise-tracker', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-});
-
-// Mongoose schemas
-const userSchema = new mongoose.Schema({
-  username: { type: String, required: true }
-});
-
-const exerciseSchema = new mongoose.Schema({
-  userId: { type: String, required: true },
-  description: String,
-  duration: Number,
-  date: Date
-});
-
-const User = mongoose.model('User', userSchema);
-const Exercise = mongoose.model('Exercise', exerciseSchema);
-
-// Routes
+// Serve HTML directly at root
 app.get('/', (req, res) => {
-  res.send('Exercise Tracker Microservice is running.');
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <title>Request Header Parser</title>
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          padding: 2em;
+          background: #f0f0f0;
+        }
+        .container {
+          background: white;
+          padding: 1.5em;
+          border-radius: 8px;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+          max-width: 600px;
+          margin: 0 auto;
+        }
+        h1 { margin-bottom: 1em; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h1>Request Header Parser</h1>
+        <p><strong>IP Address:</strong> <span id="ip"></span></p>
+        <p><strong>Language:</strong> <span id="lang"></span></p>
+        <p><strong>Software:</strong> <span id="software"></span></p>
+      </div>
+
+      <script>
+        fetch('/api/whoami')
+          .then(res => res.json())
+          .then(data => {
+            document.getElementById('ip').textContent = data.ipaddress;
+            document.getElementById('lang').textContent = data.language;
+            document.getElementById('software').textContent = data.software;
+          })
+          .catch(err => {
+            document.body.innerHTML = '<p>Failed to load data</p>';
+            console.error(err);
+          });
+      </script>
+    </body>
+    </html>
+  `);
 });
 
-// Create a new user
-app.post('/api/users', async (req, res) => {
-  const user = new User({ username: req.body.username });
-  await user.save();
-  res.json({ username: user.username, _id: user._id });
-});
-
-// Get all users
-app.get('/api/users', async (req, res) => {
-  const users = await User.find({});
-  res.json(users);
-});
-
-// Add an exercise
-app.post('/api/users/:_id/exercises', async (req, res) => {
-  const user = await User.findById(req.params._id);
-  if (!user) return res.json({ error: 'User not found' });
-
-  const { description, duration, date } = req.body;
-  const exercise = new Exercise({
-    userId: user._id,
-    description,
-    duration: parseInt(duration),
-    date: date ? new Date(date) : new Date()
-  });
-
-  await exercise.save();
+// API endpoint
+app.get('/api/whoami', (req, res) => {
+  const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress;
+  const lang = req.headers['accept-language'];
+  const software = req.headers['user-agent'];
 
   res.json({
-    _id: user._id,
-    username: user.username,
-    date: exercise.date.toDateString(),
-    duration: exercise.duration,
-    description: exercise.description
-  });
-});
-
-// Get exercise logs
-app.get('/api/users/:_id/logs', async (req, res) => {
-  const { from, to, limit } = req.query;
-  const user = await User.findById(req.params._id);
-  if (!user) return res.json({ error: 'User not found' });
-
-  let query = { userId: user._id };
-  if (from || to) {
-    query.date = {};
-    if (from) query.date.$gte = new Date(from);
-    if (to) query.date.$lte = new Date(to);
-  }
-
-  let exercises = Exercise.find(query).select('-_id description duration date');
-  if (limit) exercises = exercises.limit(parseInt(limit));
-
-  const logs = await exercises.exec();
-
-  res.json({
-    _id: user._id,
-    username: user.username,
-    count: logs.length,
-    log: logs.map(e => ({
-      description: e.description,
-      duration: e.duration,
-      date: e.date.toDateString()
-    }))
+    ipaddress: ip,
+    language: lang,
+    software: software
   });
 });
 
 // Start server
-const port = 3000;
-app.listen(port, () => {
-  console.log(`Server listening on port ${port}`);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log('Server running on port', PORT);
 });
