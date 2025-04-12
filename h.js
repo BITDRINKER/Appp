@@ -1,72 +1,108 @@
 const express = require('express');
 const cors = require('cors');
+const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
-const dns = require('dns');
-const app = express();
-const urlParser = require('url');
 
+const app = express();
 app.use(cors());
 app.use(bodyParser.urlencoded({ extended: false }));
-app.use(express.json());
+app.use(bodyParser.json());
 
-const urlDatabase = {};
-let urlCounter = 1;
+// Connect to MongoDB
+mongoose.connect('mongodb://127.0.0.1:27017/exercise-tracker', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+});
 
-// Root HTML
+// Mongoose schemas
+const userSchema = new mongoose.Schema({
+  username: { type: String, required: true }
+});
+
+const exerciseSchema = new mongoose.Schema({
+  userId: { type: String, required: true },
+  description: String,
+  duration: Number,
+  date: Date
+});
+
+const User = mongoose.model('User', userSchema);
+const Exercise = mongoose.model('Exercise', exerciseSchema);
+
+// Routes
 app.get('/', (req, res) => {
-  res.send(`
-    <h2>URL Shortener Microservice</h2>
-    <form action="/api/shorturl" method="post">
-      <input type="text" name="url" placeholder="https://example.com" required />
-      <button type="submit">Shorten</button>
-    </form>
-  `);
+  res.send('Exercise Tracker Microservice is running.');
 });
 
-// POST endpoint
-app.post('/api/shorturl', (req, res) => {
-  const originalUrl = req.body.url;
-
-  // Check if URL starts with http:// or https://
-  if (!/^https?:\/\/.+/i.test(originalUrl)) {
-    return res.json({ error: 'invalid url' });
-  }
-
-  try {
-    const hostname = urlParser.parse(originalUrl).hostname;
-
-    dns.lookup(hostname, (err) => {
-      if (err) {
-        return res.json({ error: 'invalid url' });
-      }
-
-      const shortUrl = urlCounter++;
-      urlDatabase[shortUrl] = originalUrl;
-
-      res.json({
-        original_url: originalUrl,
-        short_url: shortUrl
-      });
-    });
-  } catch (err) {
-    res.json({ error: 'invalid url' });
-  }
+// Create a new user
+app.post('/api/users', async (req, res) => {
+  const user = new User({ username: req.body.username });
+  await user.save();
+  res.json({ username: user.username, _id: user._id });
 });
 
-// GET redirect
-app.get('/api/shorturl/:short_url', (req, res) => {
-  const shortUrl = parseInt(req.params.short_url);
-  const originalUrl = urlDatabase[shortUrl];
+// Get all users
+app.get('/api/users', async (req, res) => {
+  const users = await User.find({});
+  res.json(users);
+});
 
-  if (originalUrl) {
-    res.redirect(originalUrl);
-  } else {
-    res.json({ error: 'No short URL found for the given input' });
+// Add an exercise
+app.post('/api/users/:_id/exercises', async (req, res) => {
+  const user = await User.findById(req.params._id);
+  if (!user) return res.json({ error: 'User not found' });
+
+  const { description, duration, date } = req.body;
+  const exercise = new Exercise({
+    userId: user._id,
+    description,
+    duration: parseInt(duration),
+    date: date ? new Date(date) : new Date()
+  });
+
+  await exercise.save();
+
+  res.json({
+    _id: user._id,
+    username: user.username,
+    date: exercise.date.toDateString(),
+    duration: exercise.duration,
+    description: exercise.description
+  });
+});
+
+// Get exercise logs
+app.get('/api/users/:_id/logs', async (req, res) => {
+  const { from, to, limit } = req.query;
+  const user = await User.findById(req.params._id);
+  if (!user) return res.json({ error: 'User not found' });
+
+  let query = { userId: user._id };
+  if (from || to) {
+    query.date = {};
+    if (from) query.date.$gte = new Date(from);
+    if (to) query.date.$lte = new Date(to);
   }
+
+  let exercises = Exercise.find(query).select('-_id description duration date');
+  if (limit) exercises = exercises.limit(parseInt(limit));
+
+  const logs = await exercises.exec();
+
+  res.json({
+    _id: user._id,
+    username: user.username,
+    count: logs.length,
+    log: logs.map(e => ({
+      description: e.description,
+      duration: e.duration,
+      date: e.date.toDateString()
+    }))
+  });
 });
 
 // Start server
 const port = 3000;
-app.listen(port, '0.0.0.0', () => {
-  console.log(`Server running on port ${port}`);
+app.listen(port, () => {
+  console.log(`Server listening on port ${port}`);
 });
