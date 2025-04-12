@@ -1,164 +1,175 @@
 const express = require('express');
-const mongoose = require('mongoose');
-const bodyParser = require('body-parser');
-const path = require('path');
+const cors = require('cors');
+const { v4: uuidv4 } = require('uuid');
 
 const app = express();
-app.use(bodyParser.urlencoded({ extended: false }));
+app.use(cors());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 
-// Serve static files (HTML form)
-app.use(express.static(path.join(__dirname, 'public')));
+const users = [];
+const exercises = [];
 
-// Connect to MongoDB (using mongoose)
-mongoose.connect('mongodb://localhost:27017/exercise-tracker', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-}).then(() => console.log('Connected to MongoDB'))
-  .catch(err => console.log('Error connecting to MongoDB:', err));
-
-// Define User and Exercise Schema
-const userSchema = new mongoose.Schema({
-  username: { type: String, required: true, unique: true },
-});
-
-const exerciseSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  description: String,
-  duration: Number,
-  date: { type: Date, default: Date.now },
-});
-
-const User = mongoose.model('User', userSchema);
-const Exercise = mongoose.model('Exercise', exerciseSchema);
-
-// Serve the form to create a new user
+// Serve frontend directly
 app.get('/', (req, res) => {
   res.send(`
-    <h1>Exercise Tracker</h1>
-    <form action="/api/exercise/new-user" method="POST">
-      <label for="username">Enter your username:</label>
-      <input type="text" id="username" name="username" required>
-      <button type="submit">Create User</button>
-    </form>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Exercise Tracker</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 2rem auto; }
+    input, button { margin: 0.5rem 0; padding: 0.5rem; width: 100%; }
+    pre { background: #f5f5f5; padding: 1rem; }
+    .section { margin-top: 2rem; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script>
+    const app = document.getElementById('app');
 
-    <hr>
+    function createSection(title) {
+      const section = document.createElement('div');
+      section.className = 'section';
+      section.innerHTML = '<h2>' + title + '</h2>';
+      return section;
+    }
 
-    <form action="/api/exercise/add" method="POST">
-      <label for="userId">User ID:</label>
-      <input type="text" id="userId" name="userId" required><br><br>
+    function createInput(id, placeholder, type = 'text') {
+      const input = document.createElement('input');
+      input.type = type;
+      input.id = id;
+      input.placeholder = placeholder;
+      return input;
+    }
 
-      <label for="description">Exercise Description:</label>
-      <input type="text" id="description" name="description" required><br><br>
+    function createButton(label, onClick) {
+      const btn = document.createElement('button');
+      btn.textContent = label;
+      btn.onclick = onClick;
+      return btn;
+    }
 
-      <label for="duration">Duration (in minutes):</label>
-      <input type="number" id="duration" name="duration" required><br><br>
+    function createPre(id) {
+      const pre = document.createElement('pre');
+      pre.id = id;
+      return pre;
+    }
 
-      <label for="date">Date:</label>
-      <input type="date" id="date" name="date"><br><br>
+    const userSection = createSection('Create User');
+    const usernameInput = createInput('username', 'Username');
+    const userPre = createPre('userPre');
+    userSection.appendChild(usernameInput);
+    userSection.appendChild(createButton('Create User', async () => {
+      const res = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ username: usernameInput.value })
+      });
+      const data = await res.json();
+      userPre.textContent = JSON.stringify(data, null, 2);
+    }));
+    userSection.appendChild(userPre);
+    app.appendChild(userSection);
 
-      <button type="submit">Add Exercise</button>
-    </form>
+    const exerciseSection = createSection('Add Exercise');
+    const exId = createInput('exUserId', 'User ID');
+    const desc = createInput('desc', 'Description');
+    const dur = createInput('dur', 'Duration (minutes)', 'number');
+    const date = createInput('date', 'Date', 'date');
+    const exPre = createPre('exPre');
+    exerciseSection.append(exId, desc, dur, date);
+    exerciseSection.appendChild(createButton('Add Exercise', async () => {
+      const res = await fetch('/api/users/' + exId.value + '/exercises', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          description: desc.value,
+          duration: dur.value,
+          date: date.value
+        })
+      });
+      const data = await res.json();
+      exPre.textContent = JSON.stringify(data, null, 2);
+    }));
+    exerciseSection.appendChild(exPre);
+    app.appendChild(exerciseSection);
 
-    <hr>
-
-    <h2>Exercise Log</h2>
-    <form action="/api/exercise/log" method="GET">
-      <label for="logUserId">User ID:</label>
-      <input type="text" id="logUserId" name="userId" required><br><br>
-
-      <label for="from">From:</label>
-      <input type="date" id="from" name="from"><br><br>
-
-      <label for="to">To:</label>
-      <input type="date" id="to" name="to"><br><br>
-
-      <label for="limit">Limit:</label>
-      <input type="number" id="limit" name="limit"><br><br>
-
-      <button type="submit">Get Exercise Log</button>
-    </form>
+    const logSection = createSection('Get Logs');
+    const logId = createInput('logUserId', 'User ID');
+    const logPre = createPre('logPre');
+    logSection.append(logId);
+    logSection.appendChild(createButton('Get Logs', async () => {
+      const res = await fetch('/api/users/' + logId.value + '/logs');
+      const data = await res.json();
+      logPre.textContent = JSON.stringify(data, null, 2);
+    }));
+    logSection.appendChild(logPre);
+    app.appendChild(logSection);
+  </script>
+</body>
+</html>
   `);
 });
 
-// Create a new user
-app.post('/api/exercise/new-user', async (req, res) => {
-  const { username } = req.body;
-  const newUser = new User({ username });
-
-  try {
-    const savedUser = await newUser.save();
-    res.json({
-      username: savedUser.username,
-      _id: savedUser._id,
-    });
-  } catch (err) {
-    res.status(500).json({ error: 'Error creating new user' });
-  }
+// API routes
+app.post('/api/users', (req, res) => {
+  const username = req.body.username;
+  const _id = uuidv4().replace(/-/g, '').slice(0, 24);
+  const user = { username, _id };
+  users.push(user);
+  res.json(user);
 });
 
-// Add a new exercise for an existing user
-app.post('/api/exercise/add', async (req, res) => {
-  const { userId, description, duration, date } = req.body;
-  const exercise = new Exercise({
-    userId,
+app.get('/api/users', (req, res) => {
+  res.json(users);
+});
+
+app.post('/api/users/:_id/exercises', (req, res) => {
+  const user = users.find(u => u._id === req.params._id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const { description, duration, date } = req.body;
+  const exercise = {
+    username: user.username,
     description,
-    duration,
-    date: date ? new Date(date) : new Date(),
+    duration: parseInt(duration),
+    date: date ? new Date(date).toDateString() : new Date().toDateString(),
+    _id: user._id
+  };
+  exercises.push(exercise);
+  res.json(exercise);
+});
+
+app.get('/api/users/:_id/logs', (req, res) => {
+  const user = users.find(u => u._id === req.params._id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  let log = exercises.filter(e => e._id === user._id);
+
+  if (req.query.from) {
+    const from = new Date(req.query.from);
+    log = log.filter(e => new Date(e.date) >= from);
+  }
+  if (req.query.to) {
+    const to = new Date(req.query.to);
+    log = log.filter(e => new Date(e.date) <= to);
+  }
+  if (req.query.limit) {
+    log = log.slice(0, parseInt(req.query.limit));
+  }
+
+  res.json({
+    username: user.username,
+    count: log.length,
+    _id: user._id,
+    log: log.map(e => ({ description: e.description, duration: e.duration, date: e.date }))
   });
-
-  try {
-    const savedExercise = await exercise.save();
-    const user = await User.findById(userId);
-    res.json({
-      username: user.username,
-      description: savedExercise.description,
-      duration: savedExercise.duration,
-      date: savedExercise.date.toDateString(),
-      _id: user._id,
-    });
-  } catch (err) {
-    res.status(500).json({ error: 'Error adding exercise' });
-  }
 });
 
-// Get exercise logs for a user
-app.get('/api/exercise/log', async (req, res) => {
-  const { userId, from, to, limit } = req.query;
-  
-  let filter = { userId };
-
-  if (from) filter.date = { $gte: new Date(from) };
-  if (to) filter.date = { $lte: new Date(to) };
-
-  try {
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.json({ error: 'User not found' });
-    }
-
-    let exercises = await Exercise.find(filter)
-      .limit(Number(limit) || 100)
-      .exec();
-
-    const log = exercises.map(ex => ({
-      description: ex.description,
-      duration: ex.duration,
-      date: ex.date.toDateString(),
-    }));
-
-    res.json({
-      username: user.username,
-      count: log.length,
-      _id: user._id,
-      log,
-    });
-  } catch (err) {
-    res.status(500).json({ error: 'Error retrieving exercise logs' });
-  }
-});
-
-// Start the server
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 app.listen(PORT, () => {
-  console.log(`Exercise Tracker running on port ${PORT}`);
+  console.log('🚀 Server running on http://localhost:' + PORT);
 });
