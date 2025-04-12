@@ -2,8 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const dns = require('dns');
-const urlParser = require('url');
 const app = express();
+const urlParser = require('url');
 
 app.use(cors());
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -12,52 +12,48 @@ app.use(express.json());
 const urlDatabase = {};
 let urlCounter = 1;
 
-// Root HTML for testing
+// Root HTML
 app.get('/', (req, res) => {
   res.send(`
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <title>URL Shortener Microservice</title>
-        <style>
-          body { font-family: Arial, sans-serif; padding: 20px; background: #f0f0f0; }
-          input, button { padding: 8px; margin: 5px 0; }
-        </style>
-      </head>
-      <body>
-        <h2>URL Shortener Microservice</h2>
-        <form action="/api/shorturl" method="post">
-          <label for="url">Enter a URL:</label><br>
-          <input type="text" name="url" id="url" placeholder="https://example.com" required>
-          <br>
-          <button type="submit">Shorten</button>
-        </form>
-      </body>
-    </html>
+    <h2>URL Shortener Microservice</h2>
+    <form action="/api/shorturl" method="post">
+      <input type="text" name="url" placeholder="https://example.com" required />
+      <button type="submit">Shorten</button>
+    </form>
   `);
 });
 
-// POST endpoint to shorten a URL
+// POST endpoint
 app.post('/api/shorturl', (req, res) => {
   const originalUrl = req.body.url;
-  const hostname = urlParser.parse(originalUrl).hostname;
 
-  dns.lookup(hostname, (err) => {
-    if (err) {
-      return res.json({ error: 'invalid url' });
-    }
+  // Check if URL starts with http:// or https://
+  if (!/^https?:\/\/.+/i.test(originalUrl)) {
+    return res.json({ error: 'invalid url' });
+  }
 
-    const shortUrl = urlCounter++;
-    urlDatabase[shortUrl] = originalUrl;
+  try {
+    const hostname = urlParser.parse(originalUrl).hostname;
 
-    res.json({
-      original_url: originalUrl,
-      short_url: shortUrl
+    dns.lookup(hostname, (err) => {
+      if (err) {
+        return res.json({ error: 'invalid url' });
+      }
+
+      const shortUrl = urlCounter++;
+      urlDatabase[shortUrl] = originalUrl;
+
+      res.json({
+        original_url: originalUrl,
+        short_url: shortUrl
+      });
     });
-  });
+  } catch (err) {
+    res.json({ error: 'invalid url' });
+  }
 });
 
-// GET endpoint to redirect to the original URL
+// GET redirect
 app.get('/api/shorturl/:short_url', (req, res) => {
   const shortUrl = parseInt(req.params.short_url);
   const originalUrl = urlDatabase[shortUrl];
